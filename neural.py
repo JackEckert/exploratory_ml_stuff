@@ -50,10 +50,15 @@ class Layer():
         self.activationFunction = activationFunction
         self.costFunction = costFunction
         self.preActs = None
+        self.outputs = None
+        self.inputs = None
+        self.biasGradient = np.zeros(shape=(numNodesOut))
+        self.weightsGradient = np.zeros(shape=(numNodesIn, numNodesOut))
 
     def calculateOutputs(self, inputs):
-        inputs = np.array(inputs)
-        self.preActs = (np.linalg.matmul(inputs, self.weightsArray) + self.biasArray)
+        self.inputs = np.array(inputs)
+        self.preActs = (np.matmul(self.inputs, self.weightsArray) + self.biasArray)
+        self.outputs = np.apply_along_axis(self.activationFunction, 0, self.preActs)
         return np.apply_along_axis(self.activationFunction, 0, self.preActs)
     
     def setWeights(self, newWeights):
@@ -65,20 +70,24 @@ class Layer():
     def layerCost(self, expectedOutput, actualOutput):
         return np.apply_along_axis(self.costFunction, 0, (actualOutput - expectedOutput))
     
+    def updateWeights(self):
+        self.weightsArray += self.weightsGradient
+
+    def updateBiases(self):
+        self.biasArray += self.biasGradient
+    
 class NeuralNetwork():
     def __init__(self, shape: tuple, activationFunction = sigmoid, costFunction = square):
         self.layers = []
         for i in range(len(shape) - 1):
             self.layers.append(Layer(shape[i], shape[i + 1], activationFunction, costFunction))
         self.size = len(self.layers) + 1
-        self.lastOutput = None
         self.costFunction = costFunction
  
     def calculateOutput(self, inputs):
         put = inputs
         for layer in self.layers:
             put = layer.calculateOutputs(put)
-        self.lastOutput = put
         return put
     
     def Cost(self, dataPoint = Datapoint, returnTotal=True):
@@ -99,9 +108,22 @@ class NeuralNetwork():
     
     def backprop(self, inputs):
         endVals = self.getEndVals(inputs)
+        self.layers.reverse() # reverses order of the layers
+        for i, layer in enumerate(self.layers):
+            # update weight and bias gradients
+            layer.weightsGradient = -(np.matmul(np.reshape(layer.inputs.reshape(layer.numNodesIn, 1)), np.atleast_2d(endVals)))
+            layer.biasGradient = -endVals
 
-    
-    def Train(self, dataset):
+            if i + 1 >= len(self.layers):
+                self.layers.reverse()
+                return
+
+            endVals = np.matmul(endVals, None)
+        
+    def learn(self, inputs):
+        pass
+            
+    def train(self, dataset):
         pass
 
 # TESTING
