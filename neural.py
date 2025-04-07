@@ -4,6 +4,15 @@ import matplotlib.pyplot as plt
 # Jack Eckert - 4/04/2025
 
 # ACTIVATION FUNCTIONS -----------------------------------------------------------------------------------------------
+
+'''
+ACTIVATION FUNCTIONS
+
+Args:
+x -> input
+derivative -> calculates the derivative at the given input if True
+'''
+
 def sigmoid(x, derivative=False):
     s = 1 / (1 + np.exp(-x))
     if derivative:
@@ -17,6 +26,17 @@ def ReLu(x, derivative=False):
         return np.maximum(0, x)
 
 # COST FUNCTIONS -----------------------------------------------------------------------------------------------------
+
+'''
+COST FUNCTIONS
+
+Args:
+x -> input
+derivative -> calculates the derivative at the given input if True
+
+Returns: float
+'''
+
 def square(x, derivative=False):
     if derivative:
         return 2 * x
@@ -24,27 +44,85 @@ def square(x, derivative=False):
         return x ** 2
     
 # MISC ---------------------------------------------------------------------------------------------------------------
-def formatData(array, seperator: int, outputFirst = False):
+def formatData(array, separator: int, outputFirst = False):
+
+    '''
+    Splits each row of a 2D numpy array into inputs and outputs, then returns an array of datapoint objects using them.
+    Returned array should be equal in size to number of rows in the input array
+
+    Args:
+    array -> 2D array of your data
+    separator -> index of start of the output.
+    outputFirst -> flips input and output. Use if your output comes before input in your data.
+    '''
+
     lst = []
     for row in array:
         if outputFirst:
-            lst.append(Datapoint(row[seperator:], row[:seperator]))
+            lst.append(Datapoint(row[separator:], row[:separator]))
         else:
-            lst.append(Datapoint(row[:seperator], row[seperator:]))
+            lst.append(Datapoint(row[:separator], row[separator:]))
     return np.array(lst)
+
+def save(neuralNetwork, filepath):
+
+    lst = [np.array(neuralNetwork.shape)]
+
+    for layer in neuralNetwork.layers:
+        
+
+    np.savez(filepath, )
 
 # CLASSES  -----------------------------------------------------------------------------------------------------------
 class Datapoint():
     def __init__(self, input, output):
+
+        '''
+        Initializes datapoint object
+
+        Args:
+        input -> input of the datapoint
+        output -> expected output of the datapoint
+        '''
+
         self.inputs = np.array(input)
         self.outputs = np.array(output)
 
-class Layer():
-    def __init__(self, numNodesIn: int, numNodesOut: int, activationFunction, costFunction, xavierMode):
+class _Layer():
+
+    '''
+    Represents a layer of the neural network. A 'layer' in this implementation is a set of nodes and their incoming weights.
+
+    Attributes:
+    weightsArray -> matrix of incoming weights as a numpy array
+    biasArray -> vector of layer's biases as a numpy array
+    numNodesOut -> # of nodes in layer.
+    numNodesIn -> # of nodes in preceding layer
+    activationFunction -> activation function for the layer
+    outputs -> values of the outputs of the nodes
+    preActs -> values of the outputs before being inputted into the activation function
+    inputs -> values of the inputs to the layer. Equal to the output of the previous layer.
+
+    biasGradient -> current calculated matrix of gradients to add to the biases
+    '''
+
+    def __init__(self, numNodesIn: int, numNodesOut: int, activationFunction, initializeMode):
+
+        '''
+        Initializes layer object.
+
+        Args:
+        numNodesIn -> # of input nodes. Should be the same as the # of nodes of the preceding layer.
+        numNodesOut -> # of nodes in layer.
+        activationFunction -> activation function for the layer
+        initializeMode -> specifications for how to initialize the weights
+            'n' -> initialize use a standard normal xavier initialization
+            'u' -> initialize use a standard uniform xavier initialization
+        '''
     
-        if xavierMode == "n":
+        if initializeMode == "n":
             self.weightsArray = np.random.randn(numNodesIn, numNodesOut) * np.sqrt(2 / (numNodesIn + numNodesOut))
-        elif xavierMode == "u":
+        elif initializeMode == "u":
             self.weightsArray = (np.random.random(size=(numNodesIn, numNodesOut)) - 0.5) * np.sqrt(6 / (numNodesIn + numNodesOut)) * 2
         else:
             raise ValueError("xavierMode must be 'n' for a normal distribution and 'u' for a uniform one")
@@ -54,14 +132,13 @@ class Layer():
         self.numNodesOut = numNodesOut
         self.numNodesIn = numNodesIn
         self.activationFunction = activationFunction
-        self.costFunction = costFunction
-        self.preActs = None
         self.outputs = None
+        self.preActs = None
         self.inputs = None
-        self.biasGradient = np.zeros(shape=(numNodesOut))
         self.weightsGradient = np.zeros(shape=(numNodesIn, numNodesOut))
+        self.biasGradient = np.zeros(shape=(numNodesOut))
 
-    def calculateOutputs(self, inputs):
+    def _calculateOutputs(self, inputs):
         self.inputs = np.array(inputs)
         self.preActs = (np.matmul(self.inputs, self.weightsArray) + self.biasArray)
         self.outputs = np.apply_along_axis(self.activationFunction, 0, self.preActs)
@@ -73,8 +150,8 @@ class Layer():
     def setBiases(self, newBiases):
         self.biasArray = newBiases
 
-    def layerCost(self, expectedOutput, actualOutput):
-        return np.apply_along_axis(self.costFunction, 0, (actualOutput - expectedOutput))
+    def _layerCost(self, expectedOutput, actualOutput, costFunction):
+        return np.apply_along_axis(costFunction, 0, (actualOutput - expectedOutput))
     
     def updateWeights(self, learnRate, batchSize):
         self.weightsArray += learnRate * self.weightsGradient / batchSize
@@ -83,19 +160,23 @@ class Layer():
     def updateBiases(self, learnRate, batchSize):
         self.biasArray += learnRate * self.biasGradient / batchSize
         self.biasGradient = self.biasGradient = np.zeros(shape=(self.numNodesOut))
+
+    def setActivationFunction(self, newAct):
+        self.activationFunction = newAct
     
 class NeuralNetwork():
-    def __init__(self, shape: tuple, activationFunction = sigmoid, costFunction = square, xavierMode = "n"):
+    def __init__(self, shape: tuple, activationFunction = sigmoid, costFunction = square, initializeMode = "n"):
         self.layers = []
         for i in range(len(shape) - 1):
-            self.layers.append(Layer(shape[i], shape[i + 1], activationFunction, costFunction, xavierMode))
+            self.layers.append(_Layer(shape[i], shape[i + 1], activationFunction, initializeMode))
         self.size = len(self.layers) + 1
+        self.shape = shape
         self.costFunction = costFunction
  
     def calculateOutput(self, datapoint: Datapoint):
         put = datapoint.inputs
         for layer in self.layers:
-            put = layer.calculateOutputs(put)
+            put = layer._calculateOutputs(put)
         return put
     
     def evaluatePoint(self, datapoint: Datapoint):
@@ -113,9 +194,9 @@ class NeuralNetwork():
         oLayer = self.layers[-1]
 
         if returnTotal:
-            return np.sum(oLayer.layerCost(datapoint.outputs, output))
+            return np.sum(oLayer._layerCost(datapoint.outputs, output, self.costFunction))
         else:
-            return oLayer.layerCost(datapoint.outputs, output)
+            return oLayer._layerCost(datapoint.outputs, output, self.costFunction)
         
     def getEndVals(self, datapoint: Datapoint):
         output = self.calculateOutput(datapoint)
