@@ -66,23 +66,40 @@ def formatData(array, separator: int, outputFirst = False):
 
 def save(neuralNetwork, filepath):
 
-    lst = [np.array(neuralNetwork.shape), np.array(neuralNetwork.costFunction)]
+    '''
+    Saves a NeuralNetwork object as a .npz file (numpy archive). First array is shape, second is cost function, and then every 
+    three after that are the weights array, bias array, and activation function of a specific layer.
+
+    Args:
+    neuralNetwork -> NeuralNetwork object to be saved.
+    filepath -> filepath to save NeuralNetwork object as.
+    '''
+
+    lst = [np.array(neuralNetwork.shape), neuralNetwork.costFunction]
 
     for layer in neuralNetwork.layers:
-        lst.extend([layer.weightsArray, layer.biasArray, np.array(layer.activationFunction)])
+        lst.extend([layer.weightsArray, layer.biasArray, layer.activationFunction])
 
     np.savez(filepath, *lst)
 
 def load(filepath):
+
+    '''
+    Loads and returns a NeuralNetwork object from the specified filepath (.npz format)
+
+    Args:
+    filepath -> filepath from where to load the file
+    '''
+
     a = np.load(filepath, allow_pickle=True)
 
-    nn = NeuralNetwork(tuple(a["arr_0"]), costFunction=a["arr_1"])
+    nn = NeuralNetwork(tuple(a["arr_0"]), costFunction=a["arr_1"].item())
 
     for i, layer in enumerate(nn.layers):
         j = i * 3
         layer.setWeights(a[f"arr_{j + 2}"])
         layer.setBiases(a[f"arr_{j + 3}"])
-        layer.setActivationFunction(a[f"arr_{j + 4}"])
+        layer.setActivationFunction(a[f"arr_{j + 4}"].item())
 
     return nn
 
@@ -116,8 +133,15 @@ class _Layer():
     outputs -> values of the outputs of the nodes
     preActs -> values of the outputs before being inputted into the activation function
     inputs -> values of the inputs to the layer. Equal to the output of the previous layer.
+    weightsGradient -> current calculated matrix of gradients to add to the weights
+    biasGradient -> current calculated vector of gradients to add to the biases
 
-    biasGradient -> current calculated matrix of gradients to add to the biases
+    Public Methods:
+    setWeights -> sets the weights of a layer to a given input matrix. Must be a 2d numpy array
+    setBiases -> sets the biases of a layer to a given input vector. Must be a 1d numpy array
+    updateWeights -> adds the current gradient matrix to the weights matrix and then resets it to zero
+    updateBiases -> adds the current gradient vector to the bias vector and then resets it to zero
+    setActivationFunction -> sets the activation function of the layer to the input.
     '''
 
     def __init__(self, numNodesIn: int, numNodesOut: int, activationFunction, initializeMode):
@@ -179,6 +203,11 @@ class _Layer():
         self.activationFunction = newAct
     
 class NeuralNetwork():
+
+    '''
+    
+    '''
+
     def __init__(self, shape: tuple, activationFunction = sigmoid, costFunction = square, initializeMode = "n"):
         self.layers = []
         for i in range(len(shape) - 1):
