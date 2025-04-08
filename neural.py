@@ -66,15 +66,26 @@ def formatData(array, separator: int, outputFirst = False):
 
 def save(neuralNetwork, filepath):
 
-    lst = [np.array([neuralNetwork.shape]), np.array(neuralNetwork.costFunction)]
+    lst = [np.array(neuralNetwork.shape), np.array(neuralNetwork.costFunction)]
 
     for layer in neuralNetwork.layers:
-        lst.extend([layer.weightsArray, layer.biasArray, np.array([layer.activationFunction])])
+        lst.extend([layer.weightsArray, layer.biasArray, np.array(layer.activationFunction)])
 
     np.savez(filepath, *lst)
 
 def load(filepath):
-    pass
+    a = np.load(filepath, allow_pickle=True)
+
+    nn = NeuralNetwork(tuple(a["arr_0"]), costFunction=a["arr_1"])
+
+    for i, layer in enumerate(nn.layers):
+        j = i * 3
+        layer.setWeights(a[f"arr_{j + 2}"])
+        layer.setBiases(a[f"arr_{j + 3}"])
+        layer.setActivationFunction(a[f"arr_{j + 4}"])
+
+    return nn
+
 
 # CLASSES  -----------------------------------------------------------------------------------------------------------
 class Datapoint():
