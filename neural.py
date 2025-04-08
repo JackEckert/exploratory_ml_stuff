@@ -11,6 +11,8 @@ ACTIVATION FUNCTIONS
 Args:
 x -> input
 derivative -> calculates the derivative at the given input if True
+
+Returns: float
 '''
 
 def sigmoid(x, derivative=False):
@@ -21,9 +23,15 @@ def sigmoid(x, derivative=False):
     
 def ReLu(x, derivative=False):
     if derivative:
-        return (x > 0).astype(float)
+        return bool(x > 0)
     else:
-        return np.maximum(0, x)
+        return max(0, x)
+    
+def leakyReLu(x, derivative=False):
+    if derivative:
+        return 1 if (x > 0) else 0.1
+    else:
+        return max(0.1 * x, x)
 
 # COST FUNCTIONS -----------------------------------------------------------------------------------------------------
 
@@ -54,6 +62,8 @@ def formatData(array, separator: int, outputFirst = False):
     array -> 2D array of your data
     separator -> index of start of the output.
     outputFirst -> flips input and output. Use if your output comes before input in your data.
+
+    Returns: an array of Datapoint objects
     '''
 
     lst = []
@@ -73,12 +83,14 @@ def save(neuralNetwork, filepath):
     Args:
     neuralNetwork -> NeuralNetwork object to be saved.
     filepath -> filepath to save NeuralNetwork object as.
+
+    Returns: None
     '''
 
-    lst = [np.array(neuralNetwork.shape), neuralNetwork.costFunction]
+    lst = [np.array(neuralNetwork.shape), neuralNetwork.trueCost]
 
     for layer in neuralNetwork.layers:
-        lst.extend([layer.weightsArray, layer.biasArray, layer.activationFunction])
+        lst.extend([layer.weightsArray, layer.biasArray, layer.trueAct])
 
     np.savez(filepath, *lst)
 
@@ -89,6 +101,8 @@ def load(filepath):
 
     Args:
     filepath -> filepath from where to load the file
+
+    Returns: NeuralNetwork object
     '''
 
     a = np.load(filepath, allow_pickle=True)
@@ -125,16 +139,17 @@ class _Layer():
     Represents a layer of the neural network. A 'layer' in this implementation is a set of nodes and their incoming weights.
 
     Attributes:
-    weightsArray -> matrix of incoming weights as a numpy array
-    biasArray -> vector of layer's biases as a numpy array
-    numNodesOut -> # of nodes in layer.
-    numNodesIn -> # of nodes in preceding layer
-    activationFunction -> activation function for the layer
-    outputs -> values of the outputs of the nodes
-    preActs -> values of the outputs before being inputted into the activation function
-    inputs -> values of the inputs to the layer. Equal to the output of the previous layer.
-    weightsGradient -> current calculated matrix of gradients to add to the weights
-    biasGradient -> current calculated vector of gradients to add to the biases
+    weightsArray -> matrix of incoming weights as a numpy array, 2d numpy array of floats
+    biasArray -> vector of layer's biases as a numpy array, 1d numpy array of floats
+    numNodesOut -> # of nodes in layer, int
+    numNodesIn -> # of nodes in preceding layer, int
+    activationFunction -> vectorized activation function for the layer, vectorized pyfunc
+    trueAct -> activation function as a function, pyfunc
+    outputs -> values of the outputs of the nodes, 1d numpy array of floats
+    preActs -> values of the outputs before being inputted into the activation function, 1d numpy array of floats
+    inputs -> values of the inputs to the layer. Equal to the output of the previous layer, 1d numpy array of floats
+    weightsGradient -> current calculated matrix of gradients to add to the weights, 2d numpy array of floats
+    biasGradient -> current calculated vector of gradients to add to the biases, 1d numpy array of floats
 
     Public Methods:
     setWeights -> sets the weights of a layer to a given input matrix. Must be a 2d numpy array
@@ -169,7 +184,8 @@ class _Layer():
 
         self.numNodesOut = numNodesOut
         self.numNodesIn = numNodesIn
-        self.activationFunction = activationFunction
+        self.activationFunction = np.vectorize(activationFunction, excluded=["derivative"])
+        self.trueAct = activationFunction
         self.outputs = None
         self.preActs = None
         self.inputs = None
@@ -179,8 +195,8 @@ class _Layer():
     def _calculateOutputs(self, inputs):
         self.inputs = np.array(inputs)
         self.preActs = (np.matmul(self.inputs, self.weightsArray) + self.biasArray)
-        self.outputs = np.apply_along_axis(self.activationFunction, 0, self.preActs)
-        return np.apply_along_axis(self.activationFunction, 0, self.preActs)
+        self.outputs = self.activationFunction(self.preActs, derivative=False)
+        return self.outputs
     
     def setWeights(self, newWeights):
         self.weightsArray = newWeights
@@ -189,7 +205,7 @@ class _Layer():
         self.biasArray = newBiases
 
     def _layerCost(self, expectedOutput, actualOutput, costFunction):
-        return np.apply_along_axis(costFunction, 0, (actualOutput - expectedOutput))
+        return costFunction(actualOutput - expectedOutput, derivative=False)
     
     def updateWeights(self, learnRate, batchSize):
         self.weightsArray += learnRate * self.weightsGradient / batchSize
@@ -200,21 +216,52 @@ class _Layer():
         self.biasGradient = self.biasGradient = np.zeros(shape=(self.numNodesOut))
 
     def setActivationFunction(self, newAct):
-        self.activationFunction = newAct
+        self.activationFunction = np.vectorize(newAct, excluded=["derivative"])
     
 class NeuralNetwork():
 
     '''
-    
+    represents a neural network as a single object. Contains a list of layers within it. The input layer is not considered a layer, 
+    instead acting merely as the input of the actual first layer, either the hidden layer or the output layer depending on size.
+    e.g. a neural network consisting of 1 hidden layer will contain two layer objects: the hidden layer with its input weights & biases,
+    and the output layer with the same.
+
+    Attributes:
+    self.layers -> list of layer objects which make up the neural network, list
+    self.size -> # of layers in the neural network. In this case, the input layer DOES count as a layer, int
+    self.shape -> a tuple consisting of the size of the layers. e.g. a network with 2 inputs, 1 hidden layer with 2 nodes, and 1 output
+    would be (2, 2, 1)
+    costFunction -> vectorized cost function for the network, vectorized pyfunc
+    trueCost -> cost function as a function, pyfunc
+
+    Public Methods:
+    calculateOutput -> takes a datapoint object and returns its respective output
+    evaluatePoint -> takes a datapoint object and returns True if the program predicted the correct output, otherwise returns False
+    evaluate -> takes an iterable of datapoint objects and returns the total count of correctly predicted outputs
+    cost -> takes a datapoint object and returns its cost
+
+    train -> trains the model
     '''
 
     def __init__(self, shape: tuple, activationFunction = sigmoid, costFunction = square, initializeMode = "n"):
+
+        '''
+        Initializes neural network object.
+
+        Args:
+        shape -> tuple representing the # of nodes in each layer, tuple
+        activationFunction -> starting activation function for the network, pyfunc
+        costFunction -> costFunction for the network, pyfunc
+        initializeMode -> specifications for how to initialize the weights and biases, char (string)
+        '''
+
         self.layers = []
         for i in range(len(shape) - 1):
             self.layers.append(_Layer(shape[i], shape[i + 1], activationFunction, initializeMode))
         self.size = len(self.layers) + 1
         self.shape = shape
-        self.costFunction = costFunction
+        self.costFunction = np.vectorize(costFunction, excluded=['derivative'])
+        self.trueCost = costFunction
  
     def calculateOutput(self, datapoint: Datapoint):
         put = datapoint.inputs
@@ -224,12 +271,12 @@ class NeuralNetwork():
     
     def evaluatePoint(self, datapoint: Datapoint):
         output = self.calculateOutput(datapoint)
-        return int(np.argmax(output, 0) == np.argmax(datapoint.outputs, 0))
+        return np.argmax(output, 0) == np.argmax(datapoint.outputs, 0)
     
     def evaluate(self, dataset):
         total = 0
         for datapoint in dataset:
-            total += self.evaluatePoint(datapoint)
+            total += int(self.evaluatePoint(datapoint))
         return total
     
     def cost(self, datapoint: Datapoint, returnTotal=True):
@@ -241,27 +288,34 @@ class NeuralNetwork():
         else:
             return oLayer._layerCost(datapoint.outputs, output, self.costFunction)
         
-    def getEndVals(self, datapoint: Datapoint):
+    def _getEndVals(self, datapoint: Datapoint):
+
+        '''
+        Returns the "end values" of the network. "end values" are defined as the derivatives of the cost function with respect to the 
+        post-activation values of the end layer times the derivatives of the activation function with respect to the pre-activation values
+        of the last layer. They are the starting point for the backprop algorithm. 
+        '''
+
         output = self.calculateOutput(datapoint)
         oLayer = self.layers[-1]
-        costDerivative = np.apply_along_axis(self.costFunction, 0, output - datapoint.outputs, True)
-        activationDerivative = np.apply_along_axis(oLayer.activationFunction, 0, oLayer.preActs, True)
+        costDerivative = self.costFunction(output - datapoint.outputs, derivative=True)
+        activationDerivative = oLayer.activationFunction(oLayer.preActs, derivative=True)
         return costDerivative * activationDerivative
     
-    def backprop(self, datapoint: Datapoint):
-        endVals = self.getEndVals(datapoint)
+    def _backprop(self, datapoint: Datapoint):
+        endVals = self._getEndVals(datapoint)
         self.layers.reverse() # reverses order of the layers
         for i, layer in enumerate(self.layers):
             # update weight and bias gradients
             layer.weightsGradient -= np.matmul(layer.inputs.reshape(layer.numNodesIn, 1), np.atleast_2d(endVals))
             layer.biasGradient -= endVals.flatten()
 
-            if i + 1 >= len(self.layers):
-                self.layers.reverse()
+            if i + 1 >= len(self.layers): # only triggers on the last layer, endvals don't need to be recalculated
+                self.layers.reverse() # reverses back baby
                 return
 
             endVals = np.matmul(layer.weightsArray, endVals.reshape(layer.numNodesOut, 1))
-            endVals = endVals.reshape(1, layer.numNodesIn) * np.apply_along_axis(layer.activationFunction, 0, self.layers[i + 1].preActs, True)
+            endVals = endVals.reshape(1, layer.numNodesIn) * layer.activationFunction(self.layers[i + 1].preActs, derivative=True)
 
     def updateValues(self, learnRate, batchSize):
         for layer in self.layers:
@@ -269,17 +323,37 @@ class NeuralNetwork():
             layer.updateBiases(learnRate, batchSize)
             
     def train(self, dataset, learnRate, epochs, batchSize = None, targetCost = 0, targetAcc = 1.1, printMode = False, showCostPlot = False, showAccPlot = False):
-        i = 0
-        cost = 10000
-        acc = 0
-        dataset = np.array(dataset)
-        datasetSize = len(dataset)
 
-        if batchSize is None:
+        '''
+        trains the model for a specified amount of epochs, including options for setting a target cost or target accuracy
+        which will stop the training after they are reached
+
+        Arguments:
+        dataset -> iterable of datapoint objects to train on, iterable of datapoint objects
+        learnRate -> constant to adjust the rate of gradient descent. A good starting value is between 0.01 and 0.001, float
+        epochs -> # of epochs to train over, int
+        batchSize -> size of each batch, default is the same as the dataset size (no batching), int
+        targetCost -> cost value which stops training at the end of the current epoch if reached, float
+        targetAcc -> accuracy value which stops training at the end of the current epoch if reached (as a percentage, not count), float
+        printMode -> prints the current epoch when it completes if True, bool
+        showCostPlot -> shows a plot of cost vs. epoch at the end of training if True, bool
+        showAccPlot -> shows a plot of accuracy vs. epoch at the end of training if True, bool
+
+        Returns: None
+        '''
+
+        i = 0 # epoch counter
+        cost = 1000 # arbitrarily high starting cost that will almost assuredly be above targetCost 
+        acc = 0 # starting accuracy value that will definitely be below the target accuracy
+        dataset = np.array(dataset) # makes sure the dataset is a numpy array
+        datasetSize = len(dataset) # this value is used multiple times, so it is a variable as decreed by God
+
+        if batchSize is None: # sets batchSize to the size of the full dataset (no batching) if not specified
             batchSize = datasetSize
 
         batchCount = int(np.ceil(datasetSize / batchSize))
 
+        # pads the dataset so it works even if it can't batch cleanly (dataset size does not divide batch count)
         datasetPad = np.pad(dataset, (0, batchCount * batchSize - datasetSize)).reshape(batchCount, batchSize)
 
         costs = []
@@ -288,12 +362,14 @@ class NeuralNetwork():
         while i < epochs and cost > targetCost and targetAcc > acc:
             for batch in datasetPad:
                 for datapoint in batch:
-                    if datapoint == 0:
+                    if datapoint == 0: # breaks loop when it reaches padding
                         break
-                    self.backprop(datapoint)
+                    self._backprop(datapoint)
                 
-                self.updateValues(learnRate, batchSize)
+                self.updateValues(learnRate, batchSize) # updates values after each batch
 
+            # these if statements exist to only calculate the costs and accuracies every epoch when necessary, to not bloat
+            # the program with extra calculations when it's not
             if showCostPlot or targetCost > 0:
                 cost = sum([self.cost(dp) for dp in dataset])
                 costs.append(cost)
