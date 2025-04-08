@@ -66,12 +66,15 @@ def formatData(array, separator: int, outputFirst = False):
 
 def save(neuralNetwork, filepath):
 
-    lst = [np.array(neuralNetwork.shape)]
+    lst = [np.array([neuralNetwork.shape]), np.array(neuralNetwork.costFunction)]
 
     for layer in neuralNetwork.layers:
-        
+        lst.extend([layer.weightsArray, layer.biasArray, np.array([layer.activationFunction])])
 
-    np.savez(filepath, )
+    np.savez(filepath, *lst)
+
+def load(filepath):
+    pass
 
 # CLASSES  -----------------------------------------------------------------------------------------------------------
 class Datapoint():

@@ -1,7 +1,7 @@
 import pandas as pd
 import neural as nn
 
-train = pd.read_csv("exploratory_nn_stuff\\readData\\train.csv")
+train = pd.read_csv("readData\\train.csv")
 
 train_encoded = pd.get_dummies(train, columns=["label"], dtype=int)
 
@@ -10,4 +10,6 @@ datapoints = nn.formatData(unformArray, separator=784)
 
 recognizer = nn.NeuralNetwork((784, 32, 32, 10))
 
-recognizer.train(datapoints, 0.01, 50, batchSize=32, showAccPlot=True, printMode=True)
+recognizer.train(datapoints, 0.01, 100, batchSize=32, showAccPlot=True, printMode=True)
+
+nn.save(recognizer, "recognizer02")
