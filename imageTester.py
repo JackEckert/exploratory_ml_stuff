@@ -1,6 +1,5 @@
 import pandas as pd
 import neural as nn
-import numpy as np
 
 train = pd.read_csv("exploratory_nn_stuff\\readData\\train.csv")
 
