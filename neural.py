@@ -12,7 +12,7 @@ Args:
 x -> input
 derivative -> calculates the derivative at the given input if True
 
-Returns: float
+Returns: float/array
 '''
 
 def sigmoid(x, derivative=False):
@@ -24,14 +24,17 @@ def sigmoid(x, derivative=False):
 def ReLu(x, derivative=False):
     if derivative:
         return bool(x > 0)
-    else:
-        return max(0, x)
+    return max(0, x)
     
 def leakyReLu(x, derivative=False):
     if derivative:
         return 1 if (x > 0) else 0.1
-    else:
-        return max(0.1 * x, x)
+    return max(0.1 * x, x)
+    
+def softmax(x, derivative=False):
+    if derivative:
+        return 1
+    return np.exp(x) / np.sum(np.exp(x))
 
 # COST FUNCTIONS -----------------------------------------------------------------------------------------------------
 
@@ -45,12 +48,18 @@ derivative -> calculates the derivative at the given input if True
 Returns: float
 '''
 
-def square(x, derivative=False):
+def MSE(obs, true, derivative=False):
     if derivative:
-        return 2 * x
-    else:
-        return x ** 2
+        return 2 * (obs - true)
+    return (obs - true) ** 2
     
+def catCrossEntropy(obs, true, derivative=False):
+    if derivative:
+        return obs - true
+    return true * np.log(obs)
+
+_fullArrays = {softmax, catCrossEntropy}
+
 # MISC ---------------------------------------------------------------------------------------------------------------
 def createDataset(inputArr, outputArr):
 
@@ -203,7 +212,10 @@ class _Layer():
         self.biasArray = np.zeros(shape=numNodesOut)
         self.numNodesOut = numNodesOut
         self.numNodesIn = numNodesIn
-        self.activationFunction = np.vectorize(activationFunction, excluded=["derivative"])
+        if activationFunction in _fullArrays:
+            self.activationFunction = activationFunction
+        else:
+            self.activationFunction = np.vectorize(activationFunction, excluded=["derivative"])
         self.trueAct = activationFunction
         self.outputs = None
         self.preActs = None
@@ -245,8 +257,8 @@ class _Layer():
     def setBiases(self, newBiases):
         self.biasArray = newBiases
 
-    def _layerCost(self, expectedOutput, actualOutput, costFunction):
-        return costFunction(actualOutput - expectedOutput, derivative=False)
+    def _layerCost(self, actualOutput, expectedOutput, costFunction):
+        return costFunction(actualOutput, expectedOutput, derivative=False)
     
     def updateWeights(self, learnRate, batchSize):
         self.weightsArray += learnRate * self.weightsGradient / batchSize
@@ -258,6 +270,10 @@ class _Layer():
 
     def setActivationFunction(self, newAct):
         self.trueAct = newAct
+        if newAct in _fullArrays:
+            self.activationFunction = newAct
+            return
+        
         self.activationFunction = np.vectorize(newAct, excluded=["derivative"])
     
 class NeuralNetwork():
@@ -285,7 +301,7 @@ class NeuralNetwork():
     train -> trains the model
     '''
 
-    def __init__(self, shape: tuple, activationFunction = sigmoid, costFunction = square, initializeMode = "r"):
+    def __init__(self, shape: tuple, activationFunction = ReLu, costFunction = catCrossEntropy, initializeMode = "r"):
 
         '''
         Initializes neural network object.
@@ -306,11 +322,14 @@ class NeuralNetwork():
             self.layers.append(_Layer(shape[i], shape[i + 1], activationFunction, initializeMode))
         self.size = len(self.layers) + 1
         self.shape = shape
-        self.costFunction = np.vectorize(costFunction, excluded=['derivative'])
+        if costFunction in _fullArrays:
+            self.costFunction = costFunction
+        else:
+            self.costFunction = np.vectorize(costFunction, excluded=['derivative'])
         self.trueCost = costFunction
 
         if activationFunction in [ReLu, leakyReLu]:
-            self.setOutputActivationFunction(sigmoid)
+            self.setOutputActivationFunction(softmax)
  
     def calculateOutput(self, datapoint):
 
@@ -326,7 +345,11 @@ class NeuralNetwork():
     
     def setOutputActivationFunction(self, activationFunction, reinitialize=True):
         self.layers[-1].trueAct = activationFunction
-        self.layers[-1].activationFunction = np.vectorize(activationFunction, excluded=['derivative'])
+        if activationFunction in _fullArrays:
+            self.layers[-1].activationFunction = activationFunction
+        else:
+            self.layers[-1].activationFunction = np.vectorize(activationFunction, excluded=['derivative'])
+        
         if reinitialize:
             self.layers[-1]._initializeViaMode('r', self.layers[-1].numNodesIn, self.layers[-1].numNodesOut)
     
@@ -347,9 +370,9 @@ class NeuralNetwork():
         oLayer = self.layers[-1]
 
         if returnTotal:
-            return np.sum(oLayer._layerCost(datapoint.outputs, output, self.costFunction))
+            return np.sum(oLayer._layerCost(output, datapoint.outputs, self.costFunction))
         else:
-            return oLayer._layerCost(datapoint.outputs, output, self.costFunction)
+            return oLayer._layerCost(output, datapoint.outputs, self.costFunction)
         
     def _getEndVals(self, datapoint: Datapoint):
 
@@ -361,7 +384,7 @@ class NeuralNetwork():
 
         output = self.calculateOutput(datapoint)
         oLayer = self.layers[-1]
-        costDerivative = self.costFunction(output - datapoint.outputs, derivative=True)
+        costDerivative = self.costFunction(output, datapoint.outputs, derivative=True)
         activationDerivative = oLayer.activationFunction(oLayer.preActs, derivative=True)
         return costDerivative * activationDerivative
     
@@ -425,13 +448,14 @@ class NeuralNetwork():
         accs = []
 
         while i < epochs and cost > targetCost and targetAcc > acc:
-            for batch in datasetPad:
+            for j, batch in enumerate(datasetPad):
                 for datapoint in batch:
                     if datapoint == 0: # breaks loop when it reaches padding
                         break
                     self._backprop(datapoint)
                 
                 self._updateValues(learnRate, batchSize) # updates values after each batch
+                print(f"batch {j} of {batchCount}")
 
             # these if statements exist to only calculate the costs and accuracies every epoch when necessary, to not bloat
             # the program with extra calculations when it's not
