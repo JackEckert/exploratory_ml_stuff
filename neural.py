@@ -211,7 +211,7 @@ class _Layer():
         self.weightsGradient = np.zeros(shape=(numNodesIn, numNodesOut))
         self.biasGradient = np.zeros(shape=(numNodesOut))
 
-        self._initializeViaMode('r', numNodesIn, numNodesOut)
+        self._initializeViaMode(initializeMode, numNodesIn, numNodesOut)
 
     def _initializeViaMode(self, mode, numNodesIn, numNodesOut):
         if mode == "r":
@@ -285,7 +285,7 @@ class NeuralNetwork():
     train -> trains the model
     '''
 
-    def __init__(self, shape: tuple, activationFunction = sigmoid, costFunction = square, initializeMode = "n"):
+    def __init__(self, shape: tuple, activationFunction = sigmoid, costFunction = square, initializeMode = "r"):
 
         '''
         Initializes neural network object.
