@@ -52,11 +52,35 @@ def square(x, derivative=False):
         return x ** 2
     
 # MISC ---------------------------------------------------------------------------------------------------------------
+def createDataset(inputArr, outputArr):
+
+    '''
+    Takes a 1d or 2d numpy array of inputs (as the rows) and a 1d or 2d numpy array of outputs (as the rows) and returns
+    a list of Datapoint objects
+
+    Args:
+    inputArr -> array of inputs, 1d or 2d numpy array of numerics
+    outputArr -> array of outputs, 1d or 2d numpy array of numerics
+
+    Returns: list of Datapoint objects
+    '''
+
+    lst = []
+
+    for input, output in zip(inputArr, outputArr):
+        lst.append(Datapoint(input, output))
+
+    return lst
+
+
 def formatData(array, separator: int, outputFirst = False):
 
     '''
     Splits each row of a 2D numpy array into inputs and outputs, then returns an array of datapoint objects using them.
-    Returned array should be equal in size to number of rows in the input array
+    Returned array should be equal in size to number of rows in the input array.
+
+    Use only if you have one numpy array consisting of both inputs and outputs. If you have two seperate arrays, one for inputs
+    one for outputs, use neural.createDataset
 
     Args:
     array -> 2D array of your data
@@ -169,19 +193,14 @@ class _Layer():
         numNodesOut -> # of nodes in layer.
         activationFunction -> activation function for the layer
         initializeMode -> specifications for how to initialize the weights
-            'n' -> initialize use a standard normal xavier initialization
-            'u' -> initialize use a standard uniform xavier initialization
+            'r' -> initialize using the recommended initialization based on the activation function
+            'n' -> initialize using a standard normal Xavier initialization
+            'u' -> initialize using a standard uniform Xavier initialization
+            'h' -> initialize using a standard He initialization
+            'l' -> initialize using a standard LeCun initialization
         '''
-    
-        if initializeMode == "n":
-            self.weightsArray = np.random.randn(numNodesIn, numNodesOut) * np.sqrt(2 / (numNodesIn + numNodesOut))
-        elif initializeMode == "u":
-            self.weightsArray = (np.random.random(size=(numNodesIn, numNodesOut)) - 0.5) * np.sqrt(6 / (numNodesIn + numNodesOut)) * 2
-        else:
-            raise ValueError("xavierMode must be 'n' for a normal distribution and 'u' for a uniform one")
         
         self.biasArray = np.zeros(shape=numNodesOut)
-
         self.numNodesOut = numNodesOut
         self.numNodesIn = numNodesIn
         self.activationFunction = np.vectorize(activationFunction, excluded=["derivative"])
@@ -191,6 +210,28 @@ class _Layer():
         self.inputs = None
         self.weightsGradient = np.zeros(shape=(numNodesIn, numNodesOut))
         self.biasGradient = np.zeros(shape=(numNodesOut))
+
+        self._initializeViaMode('r', numNodesIn, numNodesOut)
+
+    def _initializeViaMode(self, mode, numNodesIn, numNodesOut):
+        if mode == "r":
+            if self.trueAct == sigmoid:
+                mode = "r"
+            elif self.trueAct == ReLu:
+                mode = "h"
+            elif self.trueAct == leakyReLu:
+                mode = "l"
+            else:
+                mode = "u"
+
+        if mode == "n":
+            self.weightsArray = np.random.randn(numNodesIn, numNodesOut) * np.sqrt(2 / (numNodesIn + numNodesOut))
+        elif mode == "u":
+            self.weightsArray = (np.random.random(size=(numNodesIn, numNodesOut)) - 0.5) * np.sqrt(6 / (numNodesIn + numNodesOut)) * 2
+        elif mode == "h":
+            self.weightsArray = np.random.randn(numNodesIn, numNodesOut) * np.sqrt(2 / (numNodesIn))
+        elif mode == "l":
+            self.weightsArray = np.random.randn(numNodesIn, numNodesOut) * np.sqrt(1 / (numNodesIn))          
 
     def _calculateOutputs(self, inputs):
         self.inputs = np.array(inputs)
@@ -216,6 +257,7 @@ class _Layer():
         self.biasGradient = self.biasGradient = np.zeros(shape=(self.numNodesOut))
 
     def setActivationFunction(self, newAct):
+        self.trueAct = newAct
         self.activationFunction = np.vectorize(newAct, excluded=["derivative"])
     
 class NeuralNetwork():
@@ -236,10 +278,10 @@ class NeuralNetwork():
 
     Public Methods:
     calculateOutput -> takes a datapoint object and returns its respective output
+    setOutputActivationFunction -> sets the output layer's activation function to the inputted value
     evaluatePoint -> takes a datapoint object and returns True if the program predicted the correct output, otherwise returns False
     evaluate -> takes an iterable of datapoint objects and returns the total count of correctly predicted outputs
     cost -> takes a datapoint object and returns its cost
-
     train -> trains the model
     '''
 
@@ -247,6 +289,10 @@ class NeuralNetwork():
 
         '''
         Initializes neural network object.
+
+        IMPORTANT: If you put ReLu or a related function as your inputted activation function, the initialization will
+        automatically set your output layer's activation function to sigmoid. If you wish to change this, use the 
+        setOutputActivationFunction method with whatever you want the output activation function to be.
 
         Args:
         shape -> tuple representing the # of nodes in each layer, tuple
@@ -262,15 +308,32 @@ class NeuralNetwork():
         self.shape = shape
         self.costFunction = np.vectorize(costFunction, excluded=['derivative'])
         self.trueCost = costFunction
+
+        if activationFunction in [ReLu, leakyReLu]:
+            self.setOutputActivationFunction(sigmoid)
  
-    def calculateOutput(self, datapoint: Datapoint):
-        put = datapoint.inputs
+    def calculateOutput(self, datapoint):
+
+        # allows for inputs of both datapoints and standard iterables
+        if isinstance(datapoint, Datapoint):
+            put = datapoint.inputs
+        else:
+            put = datapoint
+
         for layer in self.layers:
             put = layer._calculateOutputs(put)
         return put
     
+    def setOutputActivationFunction(self, activationFunction, reinitialize=True):
+        self.layers[-1].trueAct = activationFunction
+        self.layers[-1].activationFunction = np.vectorize(activationFunction, excluded=['derivative'])
+        if reinitialize:
+            self.layers[-1]._initializeViaMode('r', self.layers[-1].numNodesIn, self.layers[-1].numNodesOut)
+    
     def evaluatePoint(self, datapoint: Datapoint):
         output = self.calculateOutput(datapoint)
+        if len(output) == 1:
+            return int(round(output.item())) == datapoint.outputs.item()
         return np.argmax(output, 0) == np.argmax(datapoint.outputs, 0)
     
     def evaluate(self, dataset):
@@ -311,13 +374,15 @@ class NeuralNetwork():
             layer.biasGradient -= endVals.flatten()
 
             if i + 1 >= len(self.layers): # only triggers on the last layer, endvals don't need to be recalculated
-                self.layers.reverse() # reverses back baby
+                self.layers.reverse() # reverses back
                 return
 
+            # calculates the end values of the next layer, being the end values of the previous layer times the activation value
+            # times the activation derivative
             endVals = np.matmul(layer.weightsArray, endVals.reshape(layer.numNodesOut, 1))
             endVals = endVals.reshape(1, layer.numNodesIn) * layer.activationFunction(self.layers[i + 1].preActs, derivative=True)
 
-    def updateValues(self, learnRate, batchSize):
+    def _updateValues(self, learnRate, batchSize):
         for layer in self.layers:
             layer.updateWeights(learnRate, batchSize)
             layer.updateBiases(learnRate, batchSize)
@@ -366,7 +431,7 @@ class NeuralNetwork():
                         break
                     self._backprop(datapoint)
                 
-                self.updateValues(learnRate, batchSize) # updates values after each batch
+                self._updateValues(learnRate, batchSize) # updates values after each batch
 
             # these if statements exist to only calculate the costs and accuracies every epoch when necessary, to not bloat
             # the program with extra calculations when it's not
