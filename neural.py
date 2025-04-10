@@ -56,7 +56,12 @@ def MSE(obs, true, derivative=False):
 def catCrossEntropy(obs, true, derivative=False):
     if derivative:
         return obs - true
-    return true * np.log(obs)
+    print(obs)
+    obs[obs == 0] = 1e-10
+    print(obs, true)
+    print(-(true * np.log(obs)))
+    exit()
+    return -(true * np.log(obs))
 
 _fullArrays = {softmax, catCrossEntropy}
 
@@ -228,7 +233,7 @@ class _Layer():
     def _initializeViaMode(self, mode, numNodesIn, numNodesOut):
         if mode == "r":
             if self.trueAct == sigmoid:
-                mode = "r"
+                mode = "n"
             elif self.trueAct == ReLu:
                 mode = "h"
             elif self.trueAct == leakyReLu:
@@ -448,14 +453,13 @@ class NeuralNetwork():
         accs = []
 
         while i < epochs and cost > targetCost and targetAcc > acc:
-            for j, batch in enumerate(datasetPad):
+            for batch in datasetPad:
                 for datapoint in batch:
                     if datapoint == 0: # breaks loop when it reaches padding
                         break
                     self._backprop(datapoint)
                 
                 self._updateValues(learnRate, batchSize) # updates values after each batch
-                print(f"batch {j} of {batchCount}")
 
             # these if statements exist to only calculate the costs and accuracies every epoch when necessary, to not bloat
             # the program with extra calculations when it's not
