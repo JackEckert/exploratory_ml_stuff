@@ -33,7 +33,7 @@ def leakyReLu(x, derivative=False):
     
 def softmax(x, derivative=False):
     if derivative:
-        return 1
+        return np.full(len(x), 1)
     return np.exp(x) / np.sum(np.exp(x))
 
 # COST FUNCTIONS -----------------------------------------------------------------------------------------------------
