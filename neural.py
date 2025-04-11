@@ -3,6 +3,12 @@ import matplotlib.pyplot as plt
 
 # Jack Eckert - 4/04/2025
 
+#TODO
+#Dropout
+#Hyperperameter tuning
+#Early stopping
+#Learning Rate Annealing
+
 # ACTIVATION FUNCTIONS -----------------------------------------------------------------------------------------------
 
 '''
@@ -34,6 +40,7 @@ def leakyReLu(x, derivative=False):
 def softmax(x, derivative=False):
     if derivative:
         return np.full(len(x), 1)
+
     x -= np.max(x)
     exps = np.exp(x)
     return exps / np.sum(exps)
@@ -56,6 +63,10 @@ def MSE(obs, true, derivative=False):
     return np.square(obs - true)
     
 def catCrossEntropy(obs, true, derivative=False):
+
+    if np.nan in obs:
+        raise TypeError("NaNs detected in output. This is likely due to a high learn rate. Lower it by a factor of ten and try again.")
+
     if derivative:
         return obs - true
     obs = np.where(obs == 0, 1e-10, obs)
@@ -66,13 +77,13 @@ def createDataset(inputArr, outputArr):
 
     '''
     Takes a 1d or 2d numpy array of inputs (as the rows) and a 1d or 2d numpy array of outputs (as the rows) and returns
-    a list of Datapoint objects
+    an array of Datapoint objects
 
     Args:
     inputArr -> array of inputs, 1d or 2d numpy array of numerics
     outputArr -> array of outputs, 1d or 2d numpy array of numerics
 
-    Returns: list of Datapoint objects
+    Returns: array of Datapoint objects
     '''
 
     lst = []
@@ -80,7 +91,7 @@ def createDataset(inputArr, outputArr):
     for input, output in zip(inputArr, outputArr):
         lst.append(Datapoint(input, output))
 
-    return lst
+    return np.array(lst)
 
 
 def formatData(array, separator: int, outputFirst = False):
@@ -97,7 +108,7 @@ def formatData(array, separator: int, outputFirst = False):
     separator -> index of start of the output.
     outputFirst -> flips input and output. Use if your output comes before input in your data.
 
-    Returns: an array of Datapoint objects
+    Returns: array of Datapoint objects
     '''
 
     lst = []
@@ -107,6 +118,25 @@ def formatData(array, separator: int, outputFirst = False):
         else:
             lst.append(Datapoint(row[:separator], row[separator:]))
     return np.array(lst)
+
+def splitTrainTest(dataset, percentTrain: float, shuffle=True):
+
+    '''
+    Splits an array of datapoint objects into a train and test array for evaluation purposes
+
+    Args:
+    dataset -> dataset to be split, 1d numpy array of datapoint objects
+    percentTrain -> percent of the dataset to be used in the train set. Rounds down, float between 0 and 1.
+    shuffle -> shuffles the datapoints if true (before splitting)
+
+    Returns: a tuple of the train dataset and the test dataset in that order
+    '''
+
+    if shuffle:
+        np.random.shuffle(dataset)
+
+    splitIndex = int(percentTrain * len(dataset))
+    return dataset[:splitIndex], dataset[splitIndex:]
 
 def save(neuralNetwork, filepath):
 
@@ -299,7 +329,7 @@ class NeuralNetwork():
         Initializes neural network object.
 
         IMPORTANT: If you put ReLu or a related function as your inputted activation function, the initialization will
-        automatically set your output layer's activation function to sigmoid. If you wish to change this, use the 
+        automatically set your output layer's activation function to softmax. If you wish to change this, use the 
         setOutputActivationFunction method with whatever you want the output activation function to be.
 
         Args:
@@ -368,7 +398,7 @@ class NeuralNetwork():
 
         output = self.calculateOutput(datapoint)
         if np.isnan(output).any():
-            print("NaN in output")
+            raise ValueError("NaN detected in output. Try lowering learnRate by a factor of ten")
         oLayer = self.layers[-1]
         costDerivative = self.costFunction(output, datapoint.outputs, derivative=True)
         activationDerivative = oLayer.activationFunction(oLayer.preActs, derivative=True)
@@ -396,7 +426,7 @@ class NeuralNetwork():
             layer.updateWeights(learnRate, batchSize)
             layer.updateBiases(learnRate, batchSize)
             
-    def train(self, dataset, learnRate, epochs, batchSize = None, targetCost = 0, targetAcc = 1.1, printMode = False, showCostPlot = False, showAccPlot = False):
+    def train(self, dataset, learnRate, epochs, testSet=None, batchSize = None, targetCost = 0, targetAcc = 1.1, printMode = False, showCostPlot = False, showAccPlot = False):
 
         '''
         trains the model for a specified amount of epochs, including options for setting a target cost or target accuracy
@@ -406,12 +436,14 @@ class NeuralNetwork():
         dataset -> iterable of datapoint objects to train on, iterable of datapoint objects
         learnRate -> constant to adjust the rate of gradient descent. A good starting value is between 0.01 and 0.001, float
         epochs -> # of epochs to train over, int
+        testSet -> datapoint set to evaluate accuracy on
         batchSize -> size of each batch, default is the same as the dataset size (no batching), int
         targetCost -> cost value which stops training at the end of the current epoch if reached, float
         targetAcc -> accuracy value which stops training at the end of the current epoch if reached (as a percentage, not count), float
         printMode -> prints the current epoch when it completes if True, bool
         showCostPlot -> shows a plot of cost vs. epoch at the end of training if True, bool
         showAccPlot -> shows a plot of accuracy vs. epoch at the end of training if True, bool
+
 
         Returns: None
         '''
@@ -421,6 +453,8 @@ class NeuralNetwork():
         acc = 0 # starting accuracy value that will definitely be below the target accuracy
         dataset = np.array(dataset) # makes sure the dataset is a numpy array
         datasetSize = len(dataset) # this value is used multiple times, so it is a variable as decreed by God
+        if testSet is None: # evaluates accuracy on the train set if no tesetSet was specified
+            testSet = dataset
 
         if batchSize is None: # sets batchSize to the size of the full dataset (no batching) if not specified
             batchSize = datasetSize
@@ -449,7 +483,7 @@ class NeuralNetwork():
                 costs.append(cost)
 
             if showAccPlot or targetAcc <= 1:
-                acc = self.evaluate(dataset) / len(dataset)
+                acc = self.evaluate(testSet) / len(testSet)
                 accs.append(acc)
 
             if printMode:
@@ -470,3 +504,4 @@ class NeuralNetwork():
             plt.xlabel("epoch")
             plt.ylabel("accuracy")
             plt.show()
+

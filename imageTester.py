@@ -8,6 +8,14 @@ train_encoded = pd.get_dummies(train, columns=["label"], dtype=int)
 unformArray = train_encoded.to_numpy()
 datapoints = nn.formatData(unformArray, separator=784)
 
-recognizer = nn.NeuralNetwork((784, 128, 64, 10), activationFunction=nn.ReLu, costFunction=nn.catCrossEntropy)
+r = nn.load("testSave002.npz")
+print(r.evaluate(datapoints) / len(datapoints))
+exit()
 
-recognizer.train(datapoints, 0.0001, 20, batchSize=32, showAccPlot=True, showCostPlot=True, printMode=True)
+trainData, testData = nn.splitTrainTest(datapoints, 0.85)
+
+recognizer = nn.NeuralNetwork((784, 256, 128, 10), activationFunction=nn.ReLu, costFunction=nn.catCrossEntropy)
+
+recognizer.train(trainData, 0.0001, 150, batchSize=32, showAccPlot=True, showCostPlot=True, printMode=True, testSet=testData)
+
+nn.save(recognizer, "testSave002")
