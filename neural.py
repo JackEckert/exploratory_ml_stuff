@@ -23,18 +23,20 @@ def sigmoid(x, derivative=False):
     
 def ReLu(x, derivative=False):
     if derivative:
-        return bool(x > 0)
-    return max(0, x)
+        return np.where(x > 0, 1, 0)
+    return np.maximum(0, x)
     
 def leakyReLu(x, derivative=False):
     if derivative:
-        return 1 if (x > 0) else 0.1
-    return max(0.1 * x, x)
+        return np.where(x > 0, 1, 0.1)
+    return np.maximum(0.1 * x, x)
     
 def softmax(x, derivative=False):
     if derivative:
         return np.full(len(x), 1)
-    return np.exp(x) / np.sum(np.exp(x))
+    x -= np.max(x)
+    exps = np.exp(x)
+    return exps / np.sum(exps)
 
 # COST FUNCTIONS -----------------------------------------------------------------------------------------------------
 
@@ -51,19 +53,13 @@ Returns: float
 def MSE(obs, true, derivative=False):
     if derivative:
         return 2 * (obs - true)
-    return (obs - true) ** 2
+    return np.square(obs - true)
     
 def catCrossEntropy(obs, true, derivative=False):
     if derivative:
         return obs - true
-    print(obs)
-    obs[obs == 0] = 1e-10
-    print(obs, true)
-    print(-(true * np.log(obs)))
-    exit()
+    obs = np.where(obs == 0, 1e-10, obs)
     return -(true * np.log(obs))
-
-_fullArrays = {softmax, catCrossEntropy}
 
 # MISC ---------------------------------------------------------------------------------------------------------------
 def createDataset(inputArr, outputArr):
@@ -125,10 +121,10 @@ def save(neuralNetwork, filepath):
     Returns: None
     '''
 
-    lst = [np.array(neuralNetwork.shape), neuralNetwork.trueCost]
+    lst = [np.array(neuralNetwork.shape), neuralNetwork.costFunction]
 
     for layer in neuralNetwork.layers:
-        lst.extend([layer.weightsArray, layer.biasArray, layer.trueAct])
+        lst.extend([layer.weightsArray, layer.biasArray, layer.activationFunction])
 
     np.savez(filepath, *lst)
 
@@ -217,26 +213,22 @@ class _Layer():
         self.biasArray = np.zeros(shape=numNodesOut)
         self.numNodesOut = numNodesOut
         self.numNodesIn = numNodesIn
-        if activationFunction in _fullArrays:
-            self.activationFunction = activationFunction
-        else:
-            self.activationFunction = np.vectorize(activationFunction, excluded=["derivative"])
-        self.trueAct = activationFunction
+        self.activationFunction = activationFunction
         self.outputs = None
         self.preActs = None
         self.inputs = None
-        self.weightsGradient = np.zeros(shape=(numNodesIn, numNodesOut))
-        self.biasGradient = np.zeros(shape=(numNodesOut))
+        self.weightsGradient = np.zeros(shape=(numNodesIn, numNodesOut)).astype(np.float64)
+        self.biasGradient = np.zeros(shape=(numNodesOut)).astype(np.float64)
 
         self._initializeViaMode(initializeMode, numNodesIn, numNodesOut)
 
     def _initializeViaMode(self, mode, numNodesIn, numNodesOut):
         if mode == "r":
-            if self.trueAct == sigmoid:
+            if self.activationFunction == sigmoid:
                 mode = "n"
-            elif self.trueAct == ReLu:
+            elif self.activationFunction == ReLu:
                 mode = "h"
-            elif self.trueAct == leakyReLu:
+            elif self.activationFunction == leakyReLu:
                 mode = "l"
             else:
                 mode = "u"
@@ -251,10 +243,10 @@ class _Layer():
             self.weightsArray = np.random.randn(numNodesIn, numNodesOut) * np.sqrt(1 / (numNodesIn))          
 
     def _calculateOutputs(self, inputs):
-        self.inputs = np.array(inputs)
+        self.inputs = np.array(inputs).astype(np.float64)
         self.preActs = (np.matmul(self.inputs, self.weightsArray) + self.biasArray)
         self.outputs = self.activationFunction(self.preActs, derivative=False)
-        return self.outputs
+        return self.outputs.astype(np.float64)
     
     def setWeights(self, newWeights):
         self.weightsArray = newWeights
@@ -274,12 +266,7 @@ class _Layer():
         self.biasGradient = self.biasGradient = np.zeros(shape=(self.numNodesOut))
 
     def setActivationFunction(self, newAct):
-        self.trueAct = newAct
-        if newAct in _fullArrays:
-            self.activationFunction = newAct
-            return
-        
-        self.activationFunction = np.vectorize(newAct, excluded=["derivative"])
+        self.activationFunction = newAct
     
 class NeuralNetwork():
 
@@ -327,11 +314,7 @@ class NeuralNetwork():
             self.layers.append(_Layer(shape[i], shape[i + 1], activationFunction, initializeMode))
         self.size = len(self.layers) + 1
         self.shape = shape
-        if costFunction in _fullArrays:
-            self.costFunction = costFunction
-        else:
-            self.costFunction = np.vectorize(costFunction, excluded=['derivative'])
-        self.trueCost = costFunction
+        self.costFunction = costFunction
 
         if activationFunction in [ReLu, leakyReLu]:
             self.setOutputActivationFunction(softmax)
@@ -349,11 +332,7 @@ class NeuralNetwork():
         return put
     
     def setOutputActivationFunction(self, activationFunction, reinitialize=True):
-        self.layers[-1].trueAct = activationFunction
-        if activationFunction in _fullArrays:
-            self.layers[-1].activationFunction = activationFunction
-        else:
-            self.layers[-1].activationFunction = np.vectorize(activationFunction, excluded=['derivative'])
+        self.layers[-1].activationFunction = activationFunction
         
         if reinitialize:
             self.layers[-1]._initializeViaMode('r', self.layers[-1].numNodesIn, self.layers[-1].numNodesOut)
@@ -388,6 +367,8 @@ class NeuralNetwork():
         '''
 
         output = self.calculateOutput(datapoint)
+        if np.isnan(output).any():
+            print("NaN in output")
         oLayer = self.layers[-1]
         costDerivative = self.costFunction(output, datapoint.outputs, derivative=True)
         activationDerivative = oLayer.activationFunction(oLayer.preActs, derivative=True)
@@ -477,12 +458,14 @@ class NeuralNetwork():
             i += 1
         
         if showCostPlot:
+            print(f'final cost: {cost}')
             plt.plot(np.arange(i), costs)
             plt.xlabel("epoch")
             plt.ylabel("total cost")
             plt.show()
 
         if showAccPlot:
+            print(f'final accurary: {acc}')
             plt.plot(np.arange(i), accs)
             plt.xlabel("epoch")
             plt.ylabel("accuracy")
