@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 
 #TODO
 #Dropout
-#Hyperperameter tuning
 #Early stopping
-#Learning Rate Annealing
+#Learn Rate Annealing
+#Hyperperameter tuning
 
 # ACTIVATION FUNCTIONS -----------------------------------------------------------------------------------------------
 
@@ -119,7 +119,7 @@ def formatData(array, separator: int, outputFirst = False):
             lst.append(Datapoint(row[:separator], row[separator:]))
     return np.array(lst)
 
-def splitTrainTest(dataset, percentTrain: float, shuffle=True):
+def splitData(dataset, percentNew: float, shuffle=True):
 
     '''
     Splits an array of datapoint objects into a train and test array for evaluation purposes
@@ -135,7 +135,7 @@ def splitTrainTest(dataset, percentTrain: float, shuffle=True):
     if shuffle:
         np.random.shuffle(dataset)
 
-    splitIndex = int(percentTrain * len(dataset))
+    splitIndex = int(percentNew * len(dataset))
     return dataset[:splitIndex], dataset[splitIndex:]
 
 def save(neuralNetwork, filepath):
@@ -272,10 +272,13 @@ class _Layer():
         elif mode == "l":
             self.weightsArray = np.random.randn(numNodesIn, numNodesOut) * np.sqrt(1 / (numNodesIn))          
 
-    def _calculateOutputs(self, inputs):
-        self.inputs = np.array(inputs).astype(np.float64)
+    def _calculateOutputs(self, inputs, p):
+
+        self.mask = (np.random.random(len(inputs)) >= p).astype(int)
+        self.inputs = (np.array(inputs).astype(np.float64) * self.mask) / np.float64(1 - p)
         self.preActs = (np.matmul(self.inputs, self.weightsArray) + self.biasArray)
         self.outputs = self.activationFunction(self.preActs, derivative=False)
+
         return self.outputs.astype(np.float64)
     
     def setWeights(self, newWeights):
@@ -349,7 +352,7 @@ class NeuralNetwork():
         if activationFunction in [ReLu, leakyReLu]:
             self.setOutputActivationFunction(softmax)
  
-    def calculateOutput(self, datapoint):
+    def calculateOutput(self, datapoint, p=0):
 
         # allows for inputs of both datapoints and standard iterables
         if isinstance(datapoint, Datapoint):
@@ -357,8 +360,11 @@ class NeuralNetwork():
         else:
             put = datapoint
 
-        for layer in self.layers:
-            put = layer._calculateOutputs(put)
+        for i, layer in enumerate(self.layers):
+            if i == len(self.layers) - 1:
+                p = 0
+
+            put = layer._calculateOutputs(put, p)
         return put
     
     def setOutputActivationFunction(self, activationFunction, reinitialize=True):
@@ -388,7 +394,7 @@ class NeuralNetwork():
         else:
             return oLayer._layerCost(output, datapoint.outputs, self.costFunction)
         
-    def _getEndVals(self, datapoint: Datapoint):
+    def _getEndVals(self, datapoint: Datapoint, p):
 
         '''
         Returns the "end values" of the network. "end values" are defined as the derivatives of the cost function with respect to the 
@@ -396,7 +402,7 @@ class NeuralNetwork():
         of the last layer. They are the starting point for the backprop algorithm. 
         '''
 
-        output = self.calculateOutput(datapoint)
+        output = self.calculateOutput(datapoint, p)
         if np.isnan(output).any():
             raise ValueError("NaN detected in output. Try lowering learnRate by a factor of ten")
         oLayer = self.layers[-1]
@@ -404,8 +410,8 @@ class NeuralNetwork():
         activationDerivative = oLayer.activationFunction(oLayer.preActs, derivative=True)
         return costDerivative * activationDerivative
     
-    def _backprop(self, datapoint: Datapoint):
-        endVals = self._getEndVals(datapoint)
+    def _backprop(self, datapoint: Datapoint, p):
+        endVals = self._getEndVals(datapoint, p)
         self.layers.reverse() # reverses order of the layers
         for i, layer in enumerate(self.layers):
             # update weight and bias gradients
@@ -419,14 +425,15 @@ class NeuralNetwork():
             # calculates the end values of the next layer, being the end values of the previous layer times the activation value
             # times the activation derivative
             endVals = np.matmul(layer.weightsArray, endVals.reshape(layer.numNodesOut, 1))
-            endVals = endVals.reshape(1, layer.numNodesIn) * layer.activationFunction(self.layers[i + 1].preActs, derivative=True)
+            endVals = (endVals.reshape(1, layer.numNodesIn) * layer.activationFunction(self.layers[i + 1].preActs, derivative=True) * layer.mask) / (1 - p)
 
     def _updateValues(self, learnRate, batchSize):
         for layer in self.layers:
             layer.updateWeights(learnRate, batchSize)
             layer.updateBiases(learnRate, batchSize)
             
-    def train(self, dataset, learnRate, epochs, testSet=None, batchSize = None, targetCost = 0, targetAcc = 1.1, printMode = False, showCostPlot = False, showAccPlot = False):
+    def train(self, dataset, learnRate, epochs, valSet=None, batchSize = None, targetCost = 0, targetAcc = 1.1, printMode = False, showCostPlot = False, showAccPlot = False, \
+        dropoutProb=0, annealRate=1, decayStep=10, stopEarly=False):
 
         '''
         trains the model for a specified amount of epochs, including options for setting a target cost or target accuracy
@@ -436,14 +443,16 @@ class NeuralNetwork():
         dataset -> iterable of datapoint objects to train on, iterable of datapoint objects
         learnRate -> constant to adjust the rate of gradient descent. A good starting value is between 0.01 and 0.001, float
         epochs -> # of epochs to train over, int
-        testSet -> datapoint set to evaluate accuracy on
+        valSet -> datapoint set to evaluate accuracy on
         batchSize -> size of each batch, default is the same as the dataset size (no batching), int
         targetCost -> cost value which stops training at the end of the current epoch if reached, float
         targetAcc -> accuracy value which stops training at the end of the current epoch if reached (as a percentage, not count), float
         printMode -> prints the current epoch when it completes if True, bool
         showCostPlot -> shows a plot of cost vs. epoch at the end of training if True, bool
         showAccPlot -> shows a plot of accuracy vs. epoch at the end of training if True, bool
-
+        dropoutProb ->
+        annealRate ->
+        annealStep ->
 
         Returns: None
         '''
@@ -453,8 +462,10 @@ class NeuralNetwork():
         acc = 0 # starting accuracy value that will definitely be below the target accuracy
         dataset = np.array(dataset) # makes sure the dataset is a numpy array
         datasetSize = len(dataset) # this value is used multiple times, so it is a variable as decreed by God
-        if testSet is None: # evaluates accuracy on the train set if no tesetSet was specified
-            testSet = dataset
+        if valSet is None: # evaluates accuracy on the train set if no tesetSet was specified
+            valSet = dataset
+        if stopEarly: # moniters the cost of the validation for early stopping
+            costV = sum([self.cost(dp) for dp in valSet])
 
         if batchSize is None: # sets batchSize to the size of the full dataset (no batching) if not specified
             batchSize = datasetSize
@@ -472,7 +483,7 @@ class NeuralNetwork():
                 for datapoint in batch:
                     if datapoint == 0: # breaks loop when it reaches padding
                         break
-                    self._backprop(datapoint)
+                    self._backprop(datapoint, dropoutProb)
                 
                 self._updateValues(learnRate, batchSize) # updates values after each batch
 
@@ -483,11 +494,20 @@ class NeuralNetwork():
                 costs.append(cost)
 
             if showAccPlot or targetAcc <= 1:
-                acc = self.evaluate(testSet) / len(testSet)
+                acc = self.evaluate(valSet) / len(valSet)
                 accs.append(acc)
+
+            if stopEarly:
+                newV = sum([self.cost(dp) for dp in valSet])
+                if newV > costV:
+                    break
+                costV = newV
 
             if printMode:
                 print(f"epoch {i + 1} complete")
+
+            if (i % decayStep) == (decayStep - 1):
+                learnRate *= annealRate
 
             i += 1
         
