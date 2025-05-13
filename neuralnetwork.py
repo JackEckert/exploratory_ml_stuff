@@ -4,10 +4,7 @@ import matplotlib.pyplot as plt
 # Jack Eckert - 4/04/2025
 
 #TODO
-#Dropout
-#Early stopping
-#Learn Rate Annealing
-#Hyperperameter tuning
+#Hyperparameter tuning
 
 # ACTIVATION FUNCTIONS -----------------------------------------------------------------------------------------------
 
@@ -437,7 +434,7 @@ class NeuralNetwork():
 
         '''
         trains the model for a specified amount of epochs, including options for setting a target cost or target accuracy
-        which will stop the training after they are reached
+        which will stop the training after they are reached.
 
         Arguments:
         dataset -> iterable of datapoint objects to train on, iterable of datapoint objects
@@ -450,9 +447,10 @@ class NeuralNetwork():
         printMode -> prints the current epoch when it completes if True, bool
         showCostPlot -> shows a plot of cost vs. epoch at the end of training if True, bool
         showAccPlot -> shows a plot of accuracy vs. epoch at the end of training if True, bool
-        dropoutProb ->
-        annealRate ->
-        annealStep ->
+        dropoutProb -> probability/ratio for nodes to drop out on any given epoch. Between 0 and 1, float
+        annealRate -> percentage of the current learning rate that the learning rate drops to each decayStep, float
+        decayStep -> the number of epochs until the learning rate anneals, int
+        stopEarly -> enables early stopping when the cost of the validation set drops for the first time, bool
 
         Returns: None
         '''
